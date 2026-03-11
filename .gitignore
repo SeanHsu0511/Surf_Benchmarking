@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+#images
+*.jpg
+*.jpeg
+*.png
+
+*.sh
+
+*.h5
+
+results_seed_3_fully_observed_low_res/
+results_seed_3_sparse_random/
+
