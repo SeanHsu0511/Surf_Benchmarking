@@ -5,11 +5,11 @@ from functools import partial
 import numpy as np
 from scipy.interpolate import RectBivariateSpline
 
-# 強制開啟雙精度
+# Force enable double precision (x64) for numerical stability
 from jax import config
 config.update("jax_enable_x64", True)
 
-# --- 1. 先定義矩陣生成函式 ---
+# --- 1. Define Matrix Generation Function ---
 def get_interp_matrix(K, to_node=True):
     coords_center = np.linspace(1/(2*K), (2*K-1)/(2*K), K)
     coords_node = np.linspace(0, 1, K)
@@ -23,27 +23,27 @@ def get_interp_matrix(K, to_node=True):
         M[:, i] = sp(new, np.array([0.5])).flatten()
     return jnp.array(M)
 
-# --- 2. 執行預計算 (這部分要在 solver 被呼叫前完成) ---
+# --- 2. Pre-computation (Execute before calling the solver) ---
 S_FIXED = 128
 M_TNODE_J = get_interp_matrix(S_FIXED, to_node=True)   # Center -> Node
 M_TNODE_T = M_TNODE_J.T                                # 預計算轉置以加速
 M_TCNTR_J = get_interp_matrix(S_FIXED, to_node=False)  # Node -> Center
 M_TCNTR_T = M_TCNTR_J.T                                # 預計算轉置
 
-# --- 3. 定義 Solver ---
+# --- 3. Define the Physical Solver ---
 @partial(jax.jit, static_argnums=(2,))
 def solve_gwf_jax(coef_raw, F_raw, K):
     n = K - 2
     dx_inv_sq = (K - 1) ** 2
 
-    # 使用預計算好的 JAX 矩陣，避免重複執行 CPU 邏輯
+    # Use pre-computed JAX matrices to avoid redundant CPU overhead
     coef_v = M_TNODE_J @ coef_raw @ M_TNODE_T
     coef_v = jnp.clip(coef_v, 3.0, 12.0)
     F_v = M_TNODE_J @ F_raw @ M_TNODE_T
     
     f_vec = F_v[1:-1, 1:-1].flatten(order='F') 
 
-    # 算子係數與位移邏輯 (維持你確認過的 e-17 物理邏輯)
+    # Operator coefficients and finite difference logic (Staggered Grid approach)
     cs = (coef_v[:-2, 1:-1] + coef_v[1:-1, 1:-1]) / 2.0
     cn = (coef_v[2:, 1:-1] + coef_v[1:-1, 1:-1]) / 2.0
     cw = (coef_v[1:-1, :-2] + coef_v[1:-1, 1:-1]) / 2.0
@@ -63,11 +63,11 @@ def solve_gwf_jax(coef_raw, F_raw, K):
     p_internal = p_vec.reshape((n, n), order='F')
     P_node = jnp.pad(p_internal, ((1, 1), (1, 1)), mode='constant')
     
-    # 逆插值回到格心，對齊 MATLAB
+    # Back-interpolate to grid centers to align with MATLAB conventions
     P_final = M_TCNTR_J @ P_node @ M_TCNTR_T
     
     return P_final.T
 
 
-# 定義向量化版本：in_axes=(0, 0, None) 代表 a 和 F 有 batch 維度，S 是常數
+
 v_solve_gwf_jax = jax.vmap(solve_gwf_jax, in_axes=(0, 0, None))

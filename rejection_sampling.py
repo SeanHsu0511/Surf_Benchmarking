@@ -17,8 +17,9 @@ GT_SEED = 3
 POOL_PATH = 'data_pool_128x128.h5'
 F_SOURCE = jnp.ones((S, S))
 
-# --- 觀測模式設定 ---
-OBS_MODE = 'sparse_random' # 'fully_observed_low_res' 或 'sparse_random'
+# --- Observation Mode Settings ---
+# Options: 'fully_observed_low_res' or 'sparse_random'
+OBS_MODE = 'sparse_random' 
 NUM_RANDOM_SENSORS = 64 
 U_RESOLUTION = 16 
 
@@ -45,13 +46,13 @@ def main():
     os.makedirs(save_dir, exist_ok=True)
 
     # 1. 生成 Ground Truth
-    print(f"正在為 Seed {GT_SEED} 生成 GT (Mode: {OBS_MODE})...")
+    print(f"Generating GT for Seed {GT_SEED} (Mode: {OBS_MODE})...")
     ref_key = jax.random.PRNGKey(GT_SEED)
     u_ref_grf = GRF_jax(ALPHA, TAU, S, ref_key)
     a_ref = np.array(jnp.where(u_ref_grf >= 0, 12.0, 3.0)) 
     u_ref_full = np.array(solve_gwf_jax(a_ref, np.array(F_SOURCE), S))
 
-    # 定義基準觀測值與 Reference 圖 (依模式決定子圖數)
+    # Define baseline observations and reference plots (subplot count depends on mode)
     n_ref_cols = 2 if OBS_MODE == 'sparse_random' else 3
     fig_ref, ax_ref = plt.subplots(1, n_ref_cols, figsize=(5 * n_ref_cols, 4))
     
@@ -75,37 +76,35 @@ def main():
     plt.savefig(f'{save_dir}/0_reference_and_observation.png')
     plt.close()
 
-    # 定義基準觀測值
+    # Define baseline observation values
     if OBS_MODE == 'sparse_random':
         obs_x, obs_y = get_random_sensor_indices(S, NUM_RANDOM_SENSORS, seed=99)
         ref_obs = u_ref_full[obs_x, obs_y]
     else:
         ref_obs = apply_u_low_res(u_ref_full, U_RESOLUTION)
 
-    # 2. 載入數據池並進行「旋轉增強」篩選
-    # 這裡會儲存 (原始索引, 旋轉次數 k)
+    # 2. Load data pool and perform "Rotation-Augmented" filtering
     accepted_info = [] 
     accepted_sparse_maes = [] 
     
-    sanity_check_done = False # 用於一次性檢查
 
-    print(f"開啟數據池並啟動旋轉增強篩選 (4x Data Availability)...")
+    print(f"Opening data pool and starting rotation-augmented filtering ...")
     with h5py.File(POOL_PATH, 'r') as f:
         pool_a = f['a']
         pool_u = f['u']
         num_samples = pool_u.shape[0]
         step = 5000 
         
-        for start in tqdm(range(0, num_samples, step), desc="篩選中"):
+        for start in tqdm(range(0, num_samples, step), desc="Filtering"):
             end = min(start + step, num_samples)
             a_chunk = pool_a[start:end]
             u_chunk = pool_u[start:end]
             
-            # 嘗試四種旋轉 (0, 90, 180, 270)
+            # Try four rotations (0, 90, 180, 270)
             for k in [0, 1, 2, 3]:
-                # a 逆時針轉 k*90 度
+                # Rotate a counter-clockwise by k*90 degrees
                 a_rot = np.rot90(a_chunk, k=k, axes=(1, 2))
-                # u 順時針轉 k*90 度 (因為 Solver 的轉置特性，方向相反)
+                # Rotate u clockwise by k*90 degrees (Opposite direction due to Solver's transpose property)
                 u_rot = np.rot90(u_chunk, k=-k, axes=(1, 2))
 
                 
@@ -120,17 +119,14 @@ def main():
                 mask = chunk_maes <= THRESHOLD
                 rel_idx = np.where(mask)[0]
                 for r in rel_idx:
-                    # 儲存 (原始樣本在 chunk 中的位置, 旋轉次數)
-                    # 我們直接存下旋轉後的數值，避免之後重複讀取檔案並重新旋轉
                     accepted_info.append((a_rot[r], u_rot[r]))
                     accepted_sparse_maes.append(chunk_maes[r])
 
     total_acc = len(accepted_info)
-    print(f"篩選完成！找到 {total_acc} 個樣本 (含旋轉增強)。")
+    print(f"Filtering complete! Found {total_acc} samples (including rotation augmentation).")
 
-    # 3. 儲存與繪圖
+    # 3. Save and Plot
     if total_acc > 0:
-        # 解開 tuple list
         final_a = np.array([item[0] for item in accepted_info])
         final_u = np.array([item[1] for item in accepted_info])
 
@@ -165,8 +161,9 @@ def main():
             plt.tight_layout(rect=[0, 0.03, 1, 0.95])
             plt.savefig(f'{save_dir}/comparison_{i+1}.png')
             plt.close()
+        print(f"Results and plots saved to {save_dir}")
     else:
-        print("未找到樣本。")
+        print("No samples found matching the threshold.。")
 
 if __name__ == "__main__":
     main()
