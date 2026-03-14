@@ -1,0 +1,51 @@
+Cluster Quick‑Start 
+
+1. Submit a batch job
+
+sbatch run_train.sh      # submits the job described in run_train.sh
+
+
+2. Monitor or debug running jobs
+
+squeue -u $USER                       # list queued & running jobs
+sacct  -j <jobid> -o JobID,State,Elapsed,MaxRSS,MaxVMSize  # finished jobs & resources
+
+# Live log stream (stdout)
+tail -f logs/<JOB_NAME>.<JOBID>.out   # replace variables with real names
+
+
+3. Interactive session (GPU dev queue)
+
+idev -p gh-dev -N 1 -n 1              # 1 node, 1 task on the gh‑dev partition
+
+(You’ll drop into a shell on the allocated node; load modules & activate your venv as usual.)
+
+4. Cancel a job
+
+squeue -u $USER       # first find the numeric job‑ID
+scancel <jobid>       # terminate that job
+
+
+5. Setting up a Python virtual environment (once per cluster)
+
+# 1) Load base toolchain so wheels link against the right libs
+module load gcc cuda python3
+
+# 2) Create the venv in $SCRATCH (fast local storage)
+python -m venv $SCRATCH/vista_pytorch_venv
+
+# 3) Activate & bootstrap
+source $SCRATCH/vista_pytorch_venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt   # or your specific packages
+
+# 4) Verify GPU access
+python - <<'PY'
+import torch, platform
+print("Python :", platform.python_version())
+print("Torch  :", torch.__version__)
+print("CUDA OK:", torch.cuda.is_available())
+PY
+
+# 5) Deactivate when done
+deactivate
