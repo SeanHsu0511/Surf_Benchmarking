@@ -8,6 +8,9 @@ from tqdm import tqdm
 from GRF_jax import GRF_jax
 from solve_gwf_jax import v_solve_gwf_jax
 
+
+
+
 # --- Settings ---
 S = 128
 ALPHA = 2.0
